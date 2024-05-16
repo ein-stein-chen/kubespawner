@@ -744,6 +744,29 @@ def make_pvc(
 
     return pvc
 
+def make_pvc_patch(
+    pvc,
+):
+    """
+    Make a k8s pvc specification suitable for increasing the storage size of a pvc.
+
+    Parameters
+    ----------
+    pvc:
+        The pvc we would like to patch the storage for.
+        The returned object will only specify the name and the storage request.
+    """
+    patch = V1PersistentVolumeClaim()
+    patch.kind = "PersistentVolumeClaim"
+    patch.api_version = "v1"
+    patch.metadata = V1ObjectMeta()
+    patch.metadata.name = pvc.metadata.name
+    patch.spec = V1PersistentVolumeClaimSpec()
+    patch.spec.resources = V1ResourceRequirements()
+    patch.spec.resources.requests = {"storage": pvc.spec.resources.requests.storage}
+
+    return patch
+
 
 def make_ingress(
     name: str,

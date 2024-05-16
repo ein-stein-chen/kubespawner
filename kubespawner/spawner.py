@@ -43,6 +43,7 @@ from .objects import (
     make_owner_reference,
     make_pod,
     make_pvc,
+    make_pvc_patch,
     make_secret,
     make_service,
 )
@@ -548,6 +549,20 @@ class KubeSpawner(Spawner):
         Set to true to create a PVC named with `pvc_name_template` if it does
         not exist for the user when their pod is spawning.
         """,
+    )
+
+    storage_pvc_expansion = Bool(
+        False,
+        config=True,
+        help="""
+        Try to expand the PVC if it already exists.
+        
+        If set to true and a PVC already exists try to patch the PVC with the
+        requested storage size.
+        If the cluster/provisioned storage class supports volume expansion the
+        volume will be expanded (asynchronously).
+        Note that it is only possible to grow a Volume, not to shrink it.
+        """
     )
 
     delete_pvc = Bool(
@@ -2576,6 +2591,33 @@ class KubeSpawner(Spawner):
             return False
         except ApiException as e:
             if e.status == 409:
+                if self.storage_pvc_expansion:
+                    try:
+                        self.log.info(
+                            "PVC " + pvc_name + " already exists, trying to patch it."
+                        )
+                        patch = make_pvc_patch(pvc)
+                        await asyncio.wait_for(
+                            self.api.patch_namespaced_persistent_volume_claim(
+                                namespace=self.namespace,
+                                name=pvc_name,
+                                body=patch,
+                            ),
+                            request_timeout,
+                        )
+                        return True
+                    except asyncio.TimeoutError:
+                        # Just try again
+                        return False
+                    # TODO: Error could be handled better?
+                    except ApiException as e:
+                        if e.status == 422:
+                            self.log.info(
+                                "Assuming that PVC " + pvc_name + " is bigger than requested, ignoring patch failure."
+                            )
+                            return True
+                        else:
+                            raise
                 self.log.info(
                     "PVC " + pvc_name + " already exists, so did not create new pvc."
                 )
